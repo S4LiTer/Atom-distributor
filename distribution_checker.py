@@ -123,7 +123,7 @@ class DistributionChecker:
             self.distribution = distribution
             self.margins = margins
             self.distances = distances
-            
+
         return self.calculate_error(distances, distribution)
 
 
@@ -157,12 +157,3 @@ class DistributionChecker:
         return error
 
 
-dist = np.loadtxt("test_dist.txt")
-
-to_add = np.array([1, 1, 1])
-
-checker1 = DistributionChecker()
-checker2 = DistributionChecker(target_atom_count=3)
-print("Correct error:", checker1.run(np.append(dist, [to_add], axis=0), plot=False))
-checker2.run(dist, plot = False)
-checker2.add_one_atom(to_add)
