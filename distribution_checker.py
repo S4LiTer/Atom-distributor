@@ -2,6 +2,21 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 class DistributionChecker:
+    def __init__(self, target_atom_count=None):
+        self.number_density = 0.01315
+        self.experiment = np.loadtxt('xenon_distribution_data_linear.txt')
+        self.rs = self.experiment[:, 0]
+
+        self.fixed_size = None
+        if target_atom_count:
+            self.fixed_size = (target_atom_count/self.number_density) ** (1./3.)
+            print("fixed size:", self.fixed_size)
+
+        self.distribution = None
+        self.margins = None
+        self.distances = None
+
+
     def find_whole(self, array, values):
         ixs = np.round(self.find_fractional(array, values)).astype(int)
         return ixs
@@ -14,6 +29,7 @@ class DistributionChecker:
     def create_margins(self, size_of_the_cube, atomic_positions):
         atomic_positions_margins = np.zeros((1, 3))
         shifts = [-size_of_the_cube, 0, size_of_the_cube]
+
         for value_x in shifts:
             for value_y in shifts:
                 for value_z in shifts:
@@ -24,18 +40,18 @@ class DistributionChecker:
         return atomic_positions_margins
 
     def average_distance_calculator(self, distribution, distribution_margins):
-        experiment = np.loadtxt('xenon_distribution_data_linear.txt')[:, 0]
-        nbins = len(experiment)
+        nbins = len(self.rs)
         average_distance_random = np.zeros(nbins)
-        rs = experiment
+        
         atoms = np.concatenate((distribution, distribution_margins))
         for atom in distribution:
             distances = np.linalg.norm(atoms - atom, axis=1)
-            idxs = self.find_whole(rs, distances)
+            idxs = self.find_whole(self.rs, distances)
+            
             for idx in idxs:
                 if 0 <= idx < nbins:
                     average_distance_random[int(idx)] += 1.
-        return average_distance_random, rs
+        return average_distance_random
 
     def plot_results(self, distances, rs, no_of_atoms, error):
         dft_distances = [4.2657, 6.0326, 7.3884, 8.5314, 9.5384]
@@ -72,23 +88,81 @@ class DistributionChecker:
         plt.show()
         plt.close(fig)
 
-    def run(self, student_distribution, plot = False):
-        experiment = np.loadtxt('xenon_distribution_data_linear.txt')
-        number_density = 0.01315
-        size_of_the_cube = (len(student_distribution) / number_density) ** (1./3.)
-        margins_of_a_student_distribution = self.create_margins(size_of_the_cube, student_distribution)
-        distances, rs = self.average_distance_calculator(student_distribution, margins_of_a_student_distribution)
-        average = number_density * 4. * np.pi * rs ** 2
-        error = np.sum(np.abs((experiment[:, 1] - distances / average / len(student_distribution)) / experiment[:, 1]))
+    def add_one_atom(self, position: np.ndarray, check_only=True):
+        if not self.fixed_size:
+            raise Exception("This function can be used only if fixed_size is defined => you have to define target_atom_count when creating this object.")
+        
+        margins = np.copy(self.margins)
+        distribution = np.copy(self.distribution)
+        shifts = [-self.fixed_size, 0, self.fixed_size]
+        new_distances = np.array([])
+        for value_x in shifts:
+            for value_y in shifts:
+                for value_z in shifts:
+                    pos = position+np.array([value_x, value_y, value_z])
+                    if not (value_x == 0 and value_y == 0 and value_z == 0):
+                        margins = np.append(margins, [pos], axis=0)
+                        new_distances = np.append(new_distances, np.linalg.norm(distribution-pos, axis=1))
+        
+        base_box_distances = np.linalg.norm(distribution-position, axis=1)
+        base_box_distances = np.append(base_box_distances, base_box_distances)
+        margin_distances = np.linalg.norm(margins-position, axis=1)
+        
+        distribution = np.append(distribution, [position], axis=0)
 
+        all_distances = np.concatenate((new_distances, base_box_distances, margin_distances))
+        distances = np.copy(self.distances)
+
+        nbins = len(self.rs)  
+        idxs = self.find_whole(self.rs, all_distances)
+        for idx in idxs:
+            if 0 <= idx < nbins:  
+                distances[int(idx)] += 1.
+
+        if not check_only:
+            self.distribution = distribution
+            self.margins = margins
+            self.distances = distances
+            
+        return self.calculate_error(distances, distribution)
+
+
+    def run(self, student_distribution, plot = False):
+        size_of_the_cube = self.fixed_size
+        if not self.fixed_size:
+            size_of_the_cube = (len(student_distribution) / self.number_density) ** (1./3.)
+
+        margins_of_a_student_distribution = self.create_margins(size_of_the_cube, student_distribution)
+        
+        distances = self.average_distance_calculator(student_distribution, margins_of_a_student_distribution)
+        self.distribution = student_distribution
+        self.margins = margins_of_a_student_distribution
+        self.distances = distances
+
+        error = self.calculate_error(distances, student_distribution)
         # Plot results
+
         if plot: 
-            self.plot_results(distances, rs, len(student_distribution), error)
-            self.plot_distribution(student_distribution)
+            self.plot_values(distances, error)
 
         return error
 
+    def plot_values(self, distances, error):
+        self.plot_results(distances, self.rs, len(self.distribution), error)
+        self.plot_distribution(self.distribution)
 
-dist = np.loadtxt("student_distribution.txt")
-checker = DistributionChecker()
-print("Error:", checker.run(dist, plot=True))
+    def calculate_error(self, distances, distribution):
+        average = self.number_density * 4. * np.pi * self.rs ** 2
+        error = np.sum(np.abs((self.experiment[:, 1] - distances / average / len(distribution)) / self.experiment[:, 1]))
+        return error
+
+
+dist = np.loadtxt("test_dist.txt")
+
+to_add = np.array([1, 1, 1])
+
+checker1 = DistributionChecker()
+checker2 = DistributionChecker(target_atom_count=3)
+print("Correct error:", checker1.run(np.append(dist, [to_add], axis=0), plot=False))
+checker2.run(dist, plot = False)
+checker2.add_one_atom(to_add)
