@@ -89,35 +89,38 @@ class DistributionChecker:
         plt.close(fig)
 
     def add_one_atom(self, position: np.ndarray, check_only=True):
+
         if not self.fixed_size:
             raise Exception("This function can be used only if fixed_size is defined => you have to define target_atom_count when creating this object.")
         
         margins = np.copy(self.margins)
         distribution = np.copy(self.distribution)
         shifts = [-self.fixed_size, 0, self.fixed_size]
+
+
         new_distances = np.array([])
         for value_x in shifts:
             for value_y in shifts:
                 for value_z in shifts:
                     pos = position+np.array([value_x, value_y, value_z])
                     if not (value_x == 0 and value_y == 0 and value_z == 0):
-                        margins = np.append(margins, [pos], axis=0)
-                        new_distances = np.append(new_distances, np.linalg.norm(distribution-pos, axis=1))
+                        margins = np.concatenate((margins, [pos]))
+                        new_distances = np.concatenate((new_distances, np.linalg.norm(distribution-pos, axis=1)))
         
+
         base_box_distances = np.linalg.norm(distribution-position, axis=1)
         base_box_distances = np.append(base_box_distances, base_box_distances)
         margin_distances = np.linalg.norm(margins-position, axis=1)
         
-        distribution = np.append(distribution, [position], axis=0)
+        distribution = np.concatenate((distribution, [position]))
 
         all_distances = np.concatenate((new_distances, base_box_distances, margin_distances))
         distances = np.copy(self.distances)
 
         nbins = len(self.rs)  
         idxs = self.find_whole(self.rs, all_distances)
-        for idx in idxs:
-            if 0 <= idx < nbins:  
-                distances[int(idx)] += 1.
+        idxs = idxs[(idxs >= 0) & (idxs < nbins)].astype(int)
+        distances += np.bincount(idxs, minlength=nbins)
 
         if not check_only:
             self.distribution = distribution
