@@ -1,6 +1,9 @@
 import distribution_checker as dc
 import numpy as np
 
+checker = dc.DistributionChecker()
+checker.run(np.loadtxt("dist0-49.txt"), plot=True)
+exit()
 atoms = 500
 placed_atoms = 425
 steps_in_row = 13

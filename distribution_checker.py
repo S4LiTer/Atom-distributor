@@ -7,8 +7,10 @@ class DistributionChecker:
         self.experiment = np.loadtxt('xenon_distribution_data_linear.txt')
         self.rs = self.experiment[:, 0]
 
+        self.atom_count = None
         self.fixed_size = None
         if target_atom_count:
+            self.atom_count = target_atom_count
             self.fixed_size = (target_atom_count/self.number_density) ** (1./3.)
             print("fixed size:", self.fixed_size)
 
@@ -155,8 +157,16 @@ class DistributionChecker:
         self.plot_distribution(self.distribution)
 
     def calculate_error(self, distances, distribution):
+        rs = self.experiment[:, 1]
+        no_atoms = len(distribution)
+        if self.atom_count:
+            no_atoms = self.atom_count
+
         average = self.number_density * 4. * np.pi * self.rs ** 2
-        error = np.sum(np.abs((self.experiment[:, 1] - distances / average / len(distribution)) / self.experiment[:, 1]))
+        bin_width = rs[1] - rs[0]
+        distances = distances / (bin_width*no_atoms)
+        plot_values = np.array(distances / average)
+        error = np.sqrt(np.sum((plot_values - rs)**2))
         return error
 
 
