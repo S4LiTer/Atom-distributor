@@ -157,7 +157,7 @@ class DistributionChecker:
         self.plot_distribution(self.distribution)
 
     def calculate_error(self, distances, distribution):
-        rs = self.experiment[:, 1]
+        rs = self.experiment[:, 0]
         no_atoms = len(distribution)
         if self.atom_count:
             no_atoms = self.atom_count
@@ -165,8 +165,8 @@ class DistributionChecker:
         average = self.number_density * 4. * np.pi * self.rs ** 2
         bin_width = rs[1] - rs[0]
         distances = distances / (bin_width*no_atoms)
-        plot_values = np.array(distances / average)
-        error = np.sqrt(np.sum((plot_values - rs)**2))
-        return error
 
+        plot_values = np.array(distances / average)
+        error = np.sqrt(np.sum((plot_values - self.experiment[:, 1])**2))
+        return error
 

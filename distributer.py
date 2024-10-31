@@ -1,16 +1,14 @@
 import distribution_checker as dc
 import numpy as np
 
-checker = dc.DistributionChecker()
-checker.run(np.loadtxt("dist0-49.txt"), plot=True)
-exit()
-atoms = 500
-placed_atoms = 425
-steps_in_row = 13
-depth = 7
 
-load_from_file = True
-file = "blueprint0-50.txt"
+atoms = 80
+placed_atoms = 1
+steps_in_row = 4
+depth = 4
+
+load_from_file = False
+file = "blueprint0-55.txt"
 
 output_name = "dist.txt"
 
@@ -68,7 +66,7 @@ for _ in range(atoms-placed_atoms):
 
     
     error = checker.add_one_atom(final_pos, check_only=False)
-    if not _%5: 
+    if not _%1: 
         print(f"Atoms placed: {_}, error score:", error)
 
 print("Final erorr:", checker.run(checker.distribution, plot=False))
