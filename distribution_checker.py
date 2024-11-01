@@ -12,7 +12,7 @@ class DistributionChecker:
         if target_atom_count:
             self.atom_count = target_atom_count
             self.fixed_size = (target_atom_count/self.number_density) ** (1./3.)
-            print("fixed size:", self.fixed_size)
+
 
         self.distribution = None
         self.margins = None
@@ -90,6 +90,61 @@ class DistributionChecker:
         plt.show()
         plt.close(fig)
 
+
+    def add_one_atom_vectorized(self, positions: np.ndarray, check_only=True):
+        if not self.fixed_size:
+            raise Exception("This function can be used only if fixed_size is defined => you have to define target_atom_count when creating this object.")
+        
+        margins = np.copy(self.margins)
+        distribution = np.copy(self.distribution)
+
+        shifts = np.array([-self.fixed_size, 0, self.fixed_size])
+        shift_combinations = np.array(np.meshgrid(shifts, shifts, shifts)).T.reshape(-1, 3)
+        shift_combinations = np.delete(shift_combinations, 13, axis=0)
+
+        positions = positions.reshape((-1, 1, 3))
+        new_margins = positions + shift_combinations
+        margins = np.tile(margins, (positions.shape[0], 1, 1))
+        margins = np.concatenate((new_margins, margins), axis=1)
+
+        distribution = np.tile(distribution, (positions.shape[0], 1, 1))
+
+        new_distances = distribution[:, :, np.newaxis, :] - new_margins[:, np.newaxis, :, :] # Hnusne, ale nevim jak predelat
+        new_distances = new_distances.reshape((positions.shape[0], -1, 3))
+        new_distances = np.linalg.norm(new_distances, axis=2)
+        # new_distances = distances between already placed atoms and new atoms in margin boxes
+        
+        base_box_distances = distribution[:, :, np.newaxis, :] - positions[:, np.newaxis, :, :]
+        base_box_distances = base_box_distances.reshape((positions.shape[0], -1, 3))
+        base_box_distances = np.linalg.norm(base_box_distances, axis=2)
+        base_box_distances = np.concatenate((base_box_distances, base_box_distances), axis=1)
+        # base_box_distances = distances between newly placed atoms in main box and already placed atoms
+
+        margin_distances = margins[:, :, np.newaxis, :] - positions[:, np.newaxis, :, :]
+        margin_distances = margin_distances.reshape((positions.shape[0], -1, 3))
+        margin_distances = np.linalg.norm(margin_distances, axis=2)
+        #margin_distances = distances between newly placed atoms and margins (including new atoms in margins)
+        
+        all_distances = np.concatenate((new_distances, base_box_distances, margin_distances), axis=1)
+        distances = np.copy(self.distances)
+
+        nbins = len(self.rs)  
+        idxs = self.find_whole(self.rs, all_distances)
+
+        idxs[(idxs < 0) | (idxs >= nbins)] = positions.shape[0] * nbins+5
+        idxs = idxs + np.arange(positions.shape[0])[:, None] * nbins
+        idxs = idxs.reshape((-1,))
+        
+        idxs = idxs[(idxs >= 0) & (idxs < positions.shape[0] * nbins)].astype(int)
+        counts = np.bincount(idxs, minlength=nbins*positions.shape[0])
+        counts = counts.reshape((positions.shape[0], nbins))
+
+        distances = np.tile(distances, (positions.shape[0], 1))
+        distances = distances + counts
+
+        return self.calculate_error(distances, distribution)
+
+
     def add_one_atom(self, position: np.ndarray, check_only=True):
 
         if not self.fixed_size:
@@ -109,7 +164,6 @@ class DistributionChecker:
                         margins = np.concatenate((margins, [pos]))
                         new_distances = np.concatenate((new_distances, np.linalg.norm(distribution-pos, axis=1)))
         
-
         base_box_distances = np.linalg.norm(distribution-position, axis=1)
         base_box_distances = np.append(base_box_distances, base_box_distances)
         margin_distances = np.linalg.norm(margins-position, axis=1)
@@ -121,6 +175,7 @@ class DistributionChecker:
 
         nbins = len(self.rs)  
         idxs = self.find_whole(self.rs, all_distances)
+
         idxs = idxs[(idxs >= 0) & (idxs < nbins)].astype(int)
         distances += np.bincount(idxs, minlength=nbins)
 
@@ -128,6 +183,7 @@ class DistributionChecker:
             self.distribution = distribution
             self.margins = margins
             self.distances = distances
+
 
         return self.calculate_error(distances, distribution)
 
@@ -165,8 +221,29 @@ class DistributionChecker:
         average = self.number_density * 4. * np.pi * self.rs ** 2
         bin_width = rs[1] - rs[0]
         distances = distances / (bin_width*no_atoms)
-
         plot_values = np.array(distances / average)
-        error = np.sqrt(np.sum((plot_values - self.experiment[:, 1])**2))
+        
+        axis = len(plot_values.shape)-1
+
+        error = np.sqrt(np.sum((plot_values - self.experiment[:, 1])**2, axis=axis))
         return error
 
+
+"""
+positions = np.array([[1, 1, 1], [2, 2, 2], [3, 3 , 3]])
+
+
+
+c = DistributionChecker(target_atom_count=4)
+dist = np.array([[0, 0, 0], [0, 0, 0]])
+c.run(dist, plot = False)
+
+
+d = c.add_one_atom_vectorized(positions)
+d0 = c.add_one_atom(positions[0], check_only=True)
+
+
+print(d[0])
+print(d0)
+
+"""
