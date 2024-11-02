@@ -1,4 +1,5 @@
 import numpy as np
+import cupy
 import matplotlib.pyplot as plt
 
 class DistributionChecker:
@@ -90,8 +91,79 @@ class DistributionChecker:
         plt.show()
         plt.close(fig)
 
+    def add_one_atom_gpu(self, positions:np.ndarray):
+        if not self.fixed_size:
+            raise Exception("This function can be used only if fixed_size is defined => you have to define target_atom_count when creating this object.")
+        
+        positions = cupy.asarray(positions)
 
-    def add_one_atom_vectorized(self, positions: np.ndarray, check_only=True):
+        margins = cupy.copy(self.margins)
+        distribution = cupy.copy(self.distribution)
+
+        shifts = cupy.array([-self.fixed_size, 0, self.fixed_size])
+        shift_combinations = cupy.array(cupy.meshgrid(shifts, shifts, shifts)).T.reshape(-1, 3)
+        shift_combinations = cupy.delete(shift_combinations, 13, axis=0)
+
+        positions = positions.reshape((-1, 1, 3))
+        new_margins = positions + shift_combinations
+        margins = cupy.tile(margins, (positions.shape[0], 1, 1))
+        margins = cupy.concatenate((new_margins, margins), axis=1)
+
+        distribution = cupy.tile(distribution, (positions.shape[0], 1, 1))
+
+        new_distances = distribution[:, :, cupy.newaxis, :] - new_margins[:, cupy.newaxis, :, :] # Hnusne, ale nevim jak predelat
+        new_distances = new_distances.reshape((positions.shape[0], -1, 3))
+        new_distances = cupy.linalg.norm(new_distances, axis=2)
+        # new_distances = distances between already placed atoms and new atoms in margin boxes
+        
+        base_box_distances = distribution[:, :, cupy.newaxis, :] - positions[:, cupy.newaxis, :, :]
+        base_box_distances = base_box_distances.reshape((positions.shape[0], -1, 3))
+        base_box_distances = cupy.linalg.norm(base_box_distances, axis=2)
+        base_box_distances = cupy.concatenate((base_box_distances, base_box_distances), axis=1)
+        # base_box_distances = distances between newly placed atoms in main box and already placed atoms
+
+        margin_distances = margins[:, :, cupy.newaxis, :] - positions[:, cupy.newaxis, :, :]
+        margin_distances = margin_distances.reshape((positions.shape[0], -1, 3))
+        margin_distances = cupy.linalg.norm(margin_distances, axis=2)
+        #margin_distances = distances between newly placed atoms and margins (including new atoms in margins)
+        
+        all_distances = cupy.concatenate((new_distances, base_box_distances, margin_distances), axis=1)
+        distances = cupy.copy(self.distances)
+
+        nbins = len(self.rs)  
+        idxs = self.find_whole(self.rs, all_distances)
+
+        idxs[(idxs < 0) | (idxs >= nbins)] = positions.shape[0] * nbins+5
+        idxs = idxs + cupy.arange(positions.shape[0])[:, None] * nbins
+        idxs = idxs.reshape((-1,))
+        
+        idxs = idxs[(idxs >= 0) & (idxs < positions.shape[0] * nbins)].astype(int)
+        counts = cupy.bincount(idxs, minlength=nbins*positions.shape[0])
+        counts = counts.reshape((positions.shape[0], nbins))
+
+        distances = cupy.tile(distances, (positions.shape[0], 1))
+        distances = distances + counts
+
+        return self.calculate_error_gpu(distances, distribution)
+
+    def calculate_error_gpu(self, distances, distribution):
+        rs = cupy.asarray(self.experiment[:, 0])
+        no_atoms = len(distribution)
+        if self.atom_count:
+            no_atoms = self.atom_count
+
+        average = self.number_density * 4. * cupy.pi * cupy.asarray(self.rs) ** 2
+        bin_width = rs[1] - rs[0]
+        distances = distances / (bin_width*no_atoms)
+        plot_values = cupy.array(distances / average)
+        
+        axis = len(plot_values.shape)-1
+
+        error = cupy.sqrt(cupy.sum((plot_values - cupy.asarray(self.experiment[:, 1]))**2, axis=axis))
+        return cupy.asnumpy(error)
+
+
+    def add_one_atom_vectorized(self, positions: np.ndarray):
         if not self.fixed_size:
             raise Exception("This function can be used only if fixed_size is defined => you have to define target_atom_count when creating this object.")
         
