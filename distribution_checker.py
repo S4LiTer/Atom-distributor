@@ -147,13 +147,13 @@ class DistributionChecker:
         return self.calculate_error_gpu(distances, distribution)
 
     def calculate_error_gpu(self, distances, distribution):
-        rs = cupy.asarray(self.experiment[:, 0])
+        cupy_rs = cupy.asarray(self.rs)
         no_atoms = len(distribution)
         if self.atom_count:
             no_atoms = self.atom_count
 
-        average = self.number_density * 4. * cupy.pi * cupy.asarray(self.rs) ** 2
-        bin_width = rs[1] - rs[0]
+        average = self.number_density * 4. * cupy.pi * cupy_rs ** 2
+        bin_width = cupy_rs[1] - cupy_rs[0]
         distances = distances / (bin_width*no_atoms)
         plot_values = cupy.array(distances / average)
         
@@ -285,23 +285,104 @@ class DistributionChecker:
         self.plot_distribution(self.distribution)
 
     def calculate_error(self, distances, distribution):
-        rs = self.experiment[:, 0]
+        
         no_atoms = len(distribution)
         if self.atom_count:
             no_atoms = self.atom_count
 
         average = self.number_density * 4. * np.pi * self.rs ** 2
-        bin_width = rs[1] - rs[0]
-        distances = distances / (bin_width*no_atoms)
-        plot_values = np.array(distances / average)
+        bin_width = self.rs[1] - self.rs[0]
         
-        axis = len(plot_values.shape)-1
+        distances = distances / (bin_width*no_atoms*average)
 
-        error = np.sqrt(np.sum((plot_values - self.experiment[:, 1])**2, axis=axis))
+
+        axis = len(distances.shape)-1
+        error = np.sqrt(np.sum((distances - self.experiment[:, 1])**2, axis=axis))
         return error
 
+    def pref(self):
+        if len(np.unique(self.distribution, axis=0)) != len(self.distribution):
+            #raise Exception("There are duplications in this distribution si this function wont work")
+            pass
 
-"""
+        positions = self.distribution
+
+
+        shifts = np.array([-self.fixed_size, 0, self.fixed_size])
+        shift_combinations = np.array(np.meshgrid(shifts, shifts, shifts)).T.reshape(-1, 3)
+        shift_combinations = np.delete(shift_combinations, 13, axis=0)
+
+        positions = positions.reshape((-1, 1, 3))
+        new_margins = (positions + shift_combinations).reshape(positions.shape[0], 26, 1, 3)
+        margins = self.margins.reshape(1, 1, -1, 3)
+        margins = np.repeat((margins), positions.shape[0], axis=0)
+
+        matches = ~np.any(np.all(margins == new_margins, axis=-1), axis=1)
+        margins = margins.reshape(positions.shape[0], -1, 3)[matches].reshape(positions.shape[0], -1, 3)
+
+
+
+        adjusted_dist = np.repeat((self.distribution[np.newaxis, :, :]), positions.shape[0], axis=0)[:, np.newaxis, :, :]
+        positions = positions[:, :, np.newaxis, :]
+        matches = ~np.any(np.all(adjusted_dist == positions, axis=-1), axis=1)
+        adjusted_dist = adjusted_dist.reshape(positions.shape[0], -1, 3)[matches].reshape(positions.shape[0], 1, -1, 3)
+
+
+        old_box_to_new_margins = adjusted_dist - new_margins 
+        old_box_to_new_margins = old_box_to_new_margins.reshape((positions.shape[0], -1, 3))
+        old_box_to_new_margins = np.linalg.norm(old_box_to_new_margins, axis=2)
+
+
+        new_to_old_in_box = adjusted_dist - positions
+        new_to_old_in_box = new_to_old_in_box.reshape((positions.shape[0], -1, 3))
+        new_to_old_in_box = np.linalg.norm(new_to_old_in_box, axis=2)
+        new_to_old_in_box = np.concatenate((new_to_old_in_box, new_to_old_in_box), axis=1)
+
+        
+        new_to_old_margins = margins[:, np.newaxis, :, :] - positions
+        new_to_old_margins = new_to_old_margins.reshape((positions.shape[0], -1, 3))
+        new_to_old_margins = np.linalg.norm(new_to_old_margins, axis=2)
+
+        atom_distances = np.concatenate((old_box_to_new_margins, new_to_old_in_box, new_to_old_margins), axis=-1)
+
+        nbins = len(self.rs)  
+        idxs = self.find_whole(self.rs, atom_distances)
+
+        idxs[(idxs < 0) | (idxs >= nbins)] = positions.shape[0] * nbins+5
+        idxs = idxs + np.arange(positions.shape[0])[:, None] * nbins
+        idxs = idxs.reshape((-1,))
+        
+        idxs = idxs[(idxs >= 0) & (idxs < positions.shape[0] * nbins)].astype(int)
+        counts = np.bincount(idxs, minlength=nbins*positions.shape[0])
+        counts = counts.reshape((positions.shape[0], nbins))
+
+
+
+
+        average = self.number_density * 4. * np.pi * self.rs ** 2
+        bin_width = self.rs[1] - self.rs[0]
+        
+        err = self.distances / (bin_width*self.atom_count*average)
+        err = (err - self.experiment[:, 1])*(bin_width*self.atom_count*average)
+        err = np.repeat(err[np.newaxis, :], positions.shape[0], axis=0)
+
+        missplacement_score = np.sum((err - counts), axis=1)
+        top_missplacement_index = np.argmax(missplacement_score)
+        
+        return top_missplacement_index
+
+
+
+    def copy(self):
+        c = DistributionChecker(self.atom_count)
+        c.margins = self.margins
+        c.distribution = self.distribution
+        c.distances = self.distances
+
+        return c
+
+
+"""()
 positions = np.array([[1, 1, 1], [2, 2, 2], [3, 3 , 3]])
 
 
