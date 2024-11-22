@@ -336,7 +336,7 @@ class DistributionChecker:
         new_to_old_in_box = adjusted_dist - positions
         new_to_old_in_box = new_to_old_in_box.reshape((positions.shape[0], -1, 3))
         new_to_old_in_box = np.linalg.norm(new_to_old_in_box, axis=2)
-        new_to_old_in_box = np.concatenate((new_to_old_in_box, new_to_old_in_box), axis=1)
+        #new_to_old_in_box = np.concatenate((new_to_old_in_box, new_to_old_in_box), axis=1)
 
         
         new_to_old_margins = margins[:, np.newaxis, :, :] - positions
